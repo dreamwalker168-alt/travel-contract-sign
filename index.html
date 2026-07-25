@@ -80,7 +80,7 @@
       canvas.height = canvas.offsetHeight * ratio;
       canvas.getContext("2d").scale(ratio, ratio);
       if (signaturePad) {
-        signaturePad.clear(); // 調整大小時清除畫布避免失真
+        signaturePad.clear();
       }
     }
 
@@ -93,6 +93,14 @@
       resizeCanvas();
     }
 
+    function checkSignStatus() {
+      return fetch(`${GAS_WEB_APP_URL}?docId=${encodeURIComponent(docId)}`, {
+        method: 'GET',
+        redirect: 'follow'
+      })
+      .then(res => res.json());
+    }
+
     window.onload = () => {
       initSignaturePad();
 
@@ -102,11 +110,7 @@
       }
 
       // 載入合約資料 (GET)
-      fetch(`${GAS_WEB_APP_URL}?docId=${encodeURIComponent(docId)}`, {
-        method: 'GET',
-        redirect: 'follow'
-      })
-      .then(res => res.json())
+      checkSignStatus()
       .then(data => {
         if (data.status === 'success') {
           document.getElementById('docId').innerText = data.docId;
@@ -115,11 +119,10 @@
           
           // 如果已經簽署完成，直接顯示完成狀態
           if (data.signStatus === '已完成') {
-            document.getElementById('signing-card').style.display = 'none';
-            document.getElementById('success-card').style.display = 'block';
+            showSuccessState();
           }
 
-          const fileId = data.pdfTemplateUrl.match(/id=([a-zA-Z0-9_-]+)/)?.[1];
+          const fileId = data.pdfTemplateUrl.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || data.pdfTemplateUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
           if (fileId) {
             document.getElementById('pdf-viewer').src = `https://drive.google.com/file/d/${fileId}/preview`;
           }
@@ -132,6 +135,11 @@
         alert("讀取資料失敗，請確認網路連線或 GAS 網址設定。");
       });
     };
+
+    function showSuccessState() {
+      document.getElementById('signing-card').style.display = 'none';
+      document.getElementById('success-card').style.display = 'block';
+    }
 
     document.getElementById('clear-btn').onclick = () => signaturePad.clear();
 
@@ -147,29 +155,42 @@
       loading.style.display = 'block';
 
       try {
-        // 抓取手寫簽名的 PNG Base64 字串
         const signatureBase64 = signaturePad.toDataURL('image/png');
 
-        // 🎯 正確的 POST 發送寫法 (不要加 headers，避免觸發 CORS Preflight)
-const postRes = await fetch(GAS_WEB_APP_URL, {
-  method: 'POST',
-  redirect: 'follow',
-  body: JSON.stringify({
-    docId: docId,
-    signatureBase64: signatureBase64
-  })
-});
+        // 🎯 改用 text/plain 發送以防範 CORS 跨域 Preflight 阻擋，並結合重定向處理
+        try {
+          const postRes = await fetch(GAS_WEB_APP_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'text/plain;charset=utf-8'
+            },
+            body: JSON.stringify({
+              docId: docId,
+              signatureBase64: signatureBase64
+            })
+          });
 
-        const result = await postRes.json();
-        if (result.status === 'success') {
-          // 隱藏簽署區塊，顯示成功訊息
-          document.getElementById('signing-card').style.display = 'none';
-          document.getElementById('success-card').style.display = 'block';
+          const result = await postRes.json();
+          if (result.status === 'success') {
+            showSuccessState();
+            return;
+          }
+        } catch (jsonErr) {
+          console.warn("直接解析 Response 失敗，改用二次驗證確認 GAS 寫入狀態...", jsonErr);
+        }
+
+        // 🎯 雙重確認機制：若 response.json() 失敗，回後端確認該合約狀態是否已變成「已完成」
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 等待 GAS 後續非同步完成
+        const statusData = await checkSignStatus();
+
+        if (statusData && statusData.signStatus === '已完成') {
+          showSuccessState();
         } else {
-          alert("儲存失敗：" + result.message);
+          alert("簽署處理逾時，請檢查網路後重新嘗試。");
           submitBtn.disabled = false;
           loading.style.display = 'none';
         }
+
       } catch (err) {
         console.error("Submit Error:", err);
         alert("簽署過程發生錯誤，請稍後重試。");
