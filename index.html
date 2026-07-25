@@ -98,7 +98,8 @@
         method: 'GET',
         redirect: 'follow'
       })
-      .then(res => res.json());
+      .then(res => res.json())
+      .catch(err => ({ status: 'error', message: err.toString() }));
     }
 
     window.onload = () => {
@@ -117,7 +118,6 @@
           document.getElementById('clientName').innerText = data.clientName;
           document.getElementById('contractType').innerText = data.contractType;
           
-          // 如果已經簽署完成，直接顯示完成狀態
           if (data.signStatus === '已完成') {
             showSuccessState();
           }
@@ -129,10 +129,6 @@
         } else {
           alert("讀取合約失敗：" + data.message);
         }
-      })
-      .catch(err => {
-        console.error("Fetch Error:", err);
-        alert("讀取資料失敗，請確認網路連線或 GAS 網址設定。");
       });
     };
 
@@ -154,49 +150,38 @@
       submitBtn.disabled = true;
       loading.style.display = 'block';
 
-      try {
-        const signatureBase64 = signaturePad.toDataURL('image/png');
+      const signatureBase64 = signaturePad.toDataURL('image/png');
 
-        // 🎯 改用 text/plain 發送以防範 CORS 跨域 Preflight 阻擋，並結合重定向處理
-        try {
-          const postRes = await fetch(GAS_WEB_APP_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'text/plain;charset=utf-8'
-            },
-            body: JSON.stringify({
-              docId: docId,
-              signatureBase64: signatureBase64
-            })
-          });
+      // 1. 發送 POST 請求給 GAS（不等待直接 fetch，允許靜默背景執行）
+      fetch(GAS_WEB_APP_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify({
+          docId: docId,
+          signatureBase64: signatureBase64
+        })
+      }).catch(e => console.log("POST 背景發送中...", e));
 
-          const result = await postRes.json();
-          if (result.status === 'success') {
-            showSuccessState();
-            return;
-          }
-        } catch (jsonErr) {
-          console.warn("直接解析 Response 失敗，改用二次驗證確認 GAS 寫入狀態...", jsonErr);
-        }
+      // 2. 啟動輪詢（Polling）檢查狀態：每 2.5 秒向後端查詢一次試算表狀態
+      let attempts = 0;
+      const maxAttempts = 12; // 最多等待 30 秒 (12 * 2.5s)
 
-        // 🎯 雙重確認機制：若 response.json() 失敗，回後端確認該合約狀態是否已變成「已完成」
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 等待 GAS 後續非同步完成
+      const pollInterval = setInterval(async () => {
+        attempts++;
         const statusData = await checkSignStatus();
 
         if (statusData && statusData.signStatus === '已完成') {
+          clearInterval(pollInterval);
           showSuccessState();
-        } else {
-          alert("簽署處理逾時，請檢查網路後重新嘗試。");
+        } else if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          alert("系統處理時間較長，請檢查您的 Email 信箱確認是否已收到完成副本。");
           submitBtn.disabled = false;
           loading.style.display = 'none';
         }
-
-      } catch (err) {
-        console.error("Submit Error:", err);
-        alert("簽署過程發生錯誤，請稍後重試。");
-        submitBtn.disabled = false;
-        loading.style.display = 'none';
-      }
+      }, 2500);
     };
   </script>
 </body>
