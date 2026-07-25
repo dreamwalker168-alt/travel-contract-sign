@@ -150,18 +150,15 @@
         // 抓取手寫簽名的 PNG Base64 字串
         const signatureBase64 = signaturePad.toDataURL('image/png');
 
-        // 🎯 關鍵修正：POST 時加上 headers 確保 CORS 正常運作
-        const postRes = await fetch(GAS_WEB_APP_URL, {
-          method: 'POST',
-          redirect: 'follow',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          },
-          body: JSON.stringify({
-            docId: docId,
-            signatureBase64: signatureBase64
-          })
-        });
+        // 🎯 正確的 POST 發送寫法 (不要加 headers，避免觸發 CORS Preflight)
+const postRes = await fetch(GAS_WEB_APP_URL, {
+  method: 'POST',
+  redirect: 'follow',
+  body: JSON.stringify({
+    docId: docId,
+    signatureBase64: signatureBase64
+  })
+});
 
         const result = await postRes.json();
         if (result.status === 'success') {
