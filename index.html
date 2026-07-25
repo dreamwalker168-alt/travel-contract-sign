@@ -21,6 +21,7 @@
     .btn-secondary { background-color: #e2e8f0; color: #4a5568; }
     .btn:disabled { background-color: #cbd5e0; cursor: not-allowed; }
     #loading { display: none; color: #0066cc; font-weight: bold; margin-top: 10px; }
+    .success-box { display: none; text-align: center; padding: 30px; background: #e6fffa; border: 1px solid #38b2ac; border-radius: 8px; color: #234e52; }
   </style>
 </head>
 <body>
@@ -44,7 +45,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="signing-card">
     <h3>簽署確認</h3>
     <p style="font-size: 14px; color: #666;">請於下方方框內以手指或滑鼠完成手寫簽名：</p>
     <div class="canvas-container">
@@ -57,25 +58,39 @@
     <p id="loading">⏳ 合約合成與傳送中，請勿關閉視窗...</p>
   </div>
 
+  <!-- 簽署完成提示卡片 -->
+  <div class="card success-box" id="success-card">
+    <h2>🎉 簽署已完成！</h2>
+    <p>感謝您的簽署，合約副本已同步寄送至您的 Email 電子信箱。</p>
+    <p>您可以安全地關閉此視窗。</p>
+  </div>
+
   <script>
-    // 🎯 請確認這是您的 GAS Web App 網址
+    // 🎯 GAS Web App 網址
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzl1MxR7I3r9eJXxkORteFpeP7jxhtNRZP-c8FIKmwAbxEHCJcHajfVGmwN_RqNpK-oiQ/exec";
 
     const urlParams = new URLSearchParams(window.location.search);
     const docId = urlParams.get('docId');
     let signaturePad;
 
-    function initSignaturePad() {
+    function resizeCanvas() {
       const canvas = document.getElementById('signature-pad');
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
       canvas.width = canvas.offsetWidth * ratio;
       canvas.height = canvas.offsetHeight * ratio;
       canvas.getContext("2d").scale(ratio, ratio);
+      if (signaturePad) {
+        signaturePad.clear(); // 調整大小時清除畫布避免失真
+      }
+    }
 
+    function initSignaturePad() {
+      const canvas = document.getElementById('signature-pad');
       signaturePad = new SignaturePad(canvas, {
         backgroundColor: 'rgba(255, 255, 255, 0)',
         penColor: 'rgb(0, 0, 0)'
       });
+      resizeCanvas();
     }
 
     window.onload = () => {
@@ -86,6 +101,7 @@
         return;
       }
 
+      // 載入合約資料 (GET)
       fetch(`${GAS_WEB_APP_URL}?docId=${encodeURIComponent(docId)}`, {
         method: 'GET',
         redirect: 'follow'
@@ -97,6 +113,12 @@
           document.getElementById('clientName').innerText = data.clientName;
           document.getElementById('contractType').innerText = data.contractType;
           
+          // 如果已經簽署完成，直接顯示完成狀態
+          if (data.signStatus === '已完成') {
+            document.getElementById('signing-card').style.display = 'none';
+            document.getElementById('success-card').style.display = 'block';
+          }
+
           const fileId = data.pdfTemplateUrl.match(/id=([a-zA-Z0-9_-]+)/)?.[1];
           if (fileId) {
             document.getElementById('pdf-viewer').src = `https://drive.google.com/file/d/${fileId}/preview`;
@@ -128,10 +150,13 @@
         // 抓取手寫簽名的 PNG Base64 字串
         const signatureBase64 = signaturePad.toDataURL('image/png');
 
-        // 將簽名圖檔傳給 GAS 後端進行合成
+        // 🎯 關鍵修正：POST 時加上 headers 確保 CORS 正常運作
         const postRes = await fetch(GAS_WEB_APP_URL, {
           method: 'POST',
           redirect: 'follow',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
           body: JSON.stringify({
             docId: docId,
             signatureBase64: signatureBase64
@@ -140,15 +165,17 @@
 
         const result = await postRes.json();
         if (result.status === 'success') {
-          alert("🎉 簽署成功！已將簽署完成的 PDF 副本發送至您的 Email。");
-          location.reload();
+          // 隱藏簽署區塊，顯示成功訊息
+          document.getElementById('signing-card').style.display = 'none';
+          document.getElementById('success-card').style.display = 'block';
         } else {
           alert("儲存失敗：" + result.message);
+          submitBtn.disabled = false;
+          loading.style.display = 'none';
         }
       } catch (err) {
-        console.error(err);
-        alert("簽署過程發生錯誤：" + err.message);
-      } finally {
+        console.error("Submit Error:", err);
+        alert("簽署過程發生錯誤，請稍後重試。");
         submitBtn.disabled = false;
         loading.style.display = 'none';
       }
