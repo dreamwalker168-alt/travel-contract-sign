@@ -4,60 +4,105 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>線上旅遊合約簽署系統</title>
-  <!-- 載入必要 CDN 函式庫 -->
+  <!-- 載入 Signature Pad & pdf-lib -->
   <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background-color: #f9f9f9; }
-    .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    #signature-pad { border: 2px dashed #ccc; border-radius: 4px; cursor: crosshair; background: #fff; width: 100%; max-width: 500px; height: 200px; }
-    .btn { background: #007bff; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; font-size: 16px; cursor: pointer; }
-    .btn-clear { background: #6c757d; margin-right: 10px; }
-    .btn:disabled { background: #ccc; cursor: not-allowed; }
-    #loading { display: none; color: #007bff; font-weight: bold; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 15px; max-width: 900px; margin: 0 auto; background-color: #f4f6f9; color: #333; }
+    .card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    h2, h3 { margin-top: 0; color: #1a252f; }
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; background: #f8f9fa; padding: 12px; border-radius: 6px; }
+    
+    /* PDF 預覽框設定 */
+    .pdf-container { width: 100%; height: 500px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; margin-top: 10px; }
+    .pdf-container iframe { width: 100%; height: 100%; border: none; }
+    
+    /* 畫布與畫板設定 */
+    .canvas-container { position: relative; width: 100%; max-width: 500px; margin: 10px 0; }
+    canvas#signature-pad { border: 2px dashed #a0aec0; border-radius: 6px; background-color: #fff; width: 100%; height: 200px; touch-action: none; }
+    
+    /* 按鈕樣式 */
+    .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+    .btn { padding: 12px 24px; font-size: 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+    .btn-primary { background-color: #0066cc; color: #fff; }
+    .btn-primary:hover { background-color: #0052a3; }
+    .btn-secondary { background-color: #e2e8f0; color: #4a5568; }
+    .btn:disabled { background-color: #cbd5e0; cursor: not-allowed; }
+    #loading { display: none; color: #0066cc; font-weight: bold; margin-top: 10px; }
   </style>
 </head>
 <body>
 
   <h2>線上旅遊合約簽署</h2>
   
-  <div class="card" id="info-card">
-    <p><strong>合約編號：</strong> <span id="docId">載入中...</span></p>
-    <p><strong>客戶姓名：</strong> <span id="clientName">載入中...</span></p>
-    <p><strong>合約類型：</strong> <span id="contractType">載入中...</span></p>
+  <!-- 1. 客戶資訊 -->
+  <div class="card">
+    <h3>合約資訊</h3>
+    <div class="info-grid">
+      <div><strong>合約編號：</strong><span id="docId">載入中...</span></div>
+      <div><strong>客戶姓名：</strong><span id="clientName">載入中...</span></div>
+      <div><strong>合約類型：</strong><span id="contractType">載入中...</span></div>
+    </div>
   </div>
 
+  <!-- 2. 合約內容預覽區 (解決問題 1) -->
   <div class="card">
-    <h3>請於下方方框內完成手寫簽名：</h3>
-    <canvas id="signature-pad"></canvas>
-    <div style="margin-top: 10px;">
-      <button class="btn btn-clear" id="clear-btn">重簽</button>
-      <button class="btn" id="submit-btn">確認並送出簽署</button>
+    <h3>合約內容預覽</h3>
+    <p style="font-size: 14px; color: #666;">請仔細審閱以下合約條款內容：</p>
+    <div class="pdf-container">
+      <iframe id="pdf-viewer" src="about:blank"></iframe>
     </div>
-    <p id="loading">合約合成與傳送中，請稍候...</p>
+  </div>
+
+  <!-- 3. 手寫簽名區 (解決問題 2 & 3) -->
+  <div class="card">
+    <h3>簽署確認</h3>
+    <p style="font-size: 14px; color: #666;">請於下方方框內以手指或滑鼠完成手寫簽名：</p>
+    <div class="canvas-container">
+      <canvas id="signature-pad"></canvas>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" id="clear-btn">清除重簽</button>
+      <button class="btn btn-primary" id="submit-btn">確認並送出簽署</button>
+    </div>
+    <p id="loading">⏳ 合約合成與傳送中，請勿關閉視窗...</p>
   </div>
 
   <script>
-    // 🎯 1. 填入您剛才測試成功的 GAS Web App 網址 (結尾必須是 /exec)
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw1DXF6c0p6YBIC9t-gsYQSWrTTmpIsKWQWMawmK1d_-36QsY1LWkEkCgVi9wk2M7Gj6A/exec";
+    // 🎯 請確保這是您測試成功的 GAS Web App 網址
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx_替換為您的GAS網址_.../exec";
 
-    // 從 URL 抓取 docId 參數 (例如 ?docId=IN20260724-01)
     const urlParams = new URLSearchParams(window.location.search);
     const docId = urlParams.get('docId');
 
-    let pdfTemplateUrl = "";
+    let pdfRawUrl = "";
     let signaturePad;
 
-    window.onload = () => {
+    // 初始化手寫繪圖板與 Resize 處理
+    function initSignaturePad() {
       const canvas = document.getElementById('signature-pad');
-      signaturePad = new SignaturePad(canvas, { backgroundColor: 'rgb(255, 255, 255)' });
+      
+      // 正確校正高解析度螢幕 (Retina) 下的繪畫座標偏移
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      canvas.width = canvas.offsetWidth * ratio;
+      canvas.height = canvas.offsetHeight * ratio;
+      canvas.getContext("2d").scale(ratio, ratio);
+
+      signaturePad = new SignaturePad(canvas, {
+        backgroundColor: 'rgba(255, 255, 255, 0)', // 透明背景
+        penColor: 'rgb(0, 0, 0)'
+      });
+    }
+
+    window.onload = () => {
+      initSignaturePad();
 
       if (!docId) {
-        alert("無效的合約連結：缺少 docId 參數！");
+        alert("無效的合約網址：缺少 docId 參數！");
         return;
       }
 
-      // 載入合約資料 (加入 redirect: 'follow')
+      // 讀取試算表資料
       fetch(`${GAS_WEB_APP_URL}?docId=${encodeURIComponent(docId)}`, {
         method: 'GET',
         redirect: 'follow'
@@ -68,19 +113,28 @@
           document.getElementById('docId').innerText = data.docId;
           document.getElementById('clientName').innerText = data.clientName;
           document.getElementById('contractType').innerText = data.contractType;
-          pdfTemplateUrl = data.pdfTemplateUrl;
+          
+          pdfRawUrl = data.pdfTemplateUrl;
+
+          // 1. 預覽合約：使用 Google Drive Preview 嵌入 iframe
+          const fileId = pdfRawUrl.match(/id=([a-zA-Z0-9_-]+)/)?.[1];
+          if (fileId) {
+            document.getElementById('pdf-viewer').src = `https://drive.google.com/file/d/${fileId}/preview`;
+          }
         } else {
           alert("讀取合約失敗：" + data.message);
         }
       })
       .catch(err => {
-        console.error("Fetch error:", err);
-        alert("連線伺服器時發生錯誤：" + err.message);
+        console.error("Fetch Error:", err);
+        alert("讀取資料失敗，請確認網路連線或 GAS 網址設定。");
       });
     };
 
+    // 清除按鈕
     document.getElementById('clear-btn').onclick = () => signaturePad.clear();
 
+    // 送出簽署
     document.getElementById('submit-btn').onclick = async () => {
       if (signaturePad.isEmpty()) {
         alert("請先完成手寫簽名！");
@@ -93,31 +147,32 @@
       loading.style.display = 'block';
 
       try {
-        // 1. 下載原始 PDF
-        const pdfBytes = await fetch(pdfTemplateUrl).then(res => res.arrayBuffer());
-        
-        // 2. 載入 pdf-lib 進行合成
+        // A. 下載原始 PDF (使用 cors-anywhere 或直連)
+        const response = await fetch(pdfRawUrl);
+        if (!response.ok) throw new Error("下載空白 PDF 範本失敗");
+        const pdfBytes = await response.arrayBuffer();
+
+        // B. 利用 pdf-lib 進行 PDF 簽名合成
         const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes);
         const pages = pdfDoc.getPages();
-        const lastPage = pages[pages.length - 1]; // 繪製在最後一頁
+        const lastPage = pages[pages.length - 1]; // 繪製於最後一頁
 
-        // 3. 繪製手寫簽名
+        // 轉為 PNG Image
         const signatureImageBytes = signaturePad.toDataURL('image/png');
         const signatureImage = await pdfDoc.embedPng(signatureImageBytes);
-        
-        // 🎯 調整簽名擺放位置與大小 (x, y 座標, width, height)
+
+        // 繪製簽名到 PDF 指定位置
         lastPage.drawImage(signatureImage, {
           x: 100,
-          y: 150,
+          y: 120,
           width: 150,
           height: 60,
         });
 
-        // 4. 將合成好的 PDF 轉為 Base64 格式
+        // C. 轉 Base64 傳回 GAS 存檔
         const pdfBase64 = await pdfDoc.saveAsBase64({ dataUri: true });
 
-        // 5. POST 回傳 GAS 進行存檔與寄信
-        const response = await fetch(GAS_WEB_APP_URL, {
+        const postRes = await fetch(GAS_WEB_APP_URL, {
           method: 'POST',
           redirect: 'follow',
           body: JSON.stringify({
@@ -126,16 +181,16 @@
           })
         });
 
-        const result = await response.json();
+        const result = await postRes.json();
         if (result.status === 'success') {
-          alert("簽署完成！副本已寄至您的 Email 郵箱。");
-          window.location.reload();
+          alert("🎉 簽署成功！已將簽署完成的 PDF 副本發送至您的 Email。");
+          location.reload();
         } else {
           alert("儲存失敗：" + result.message);
         }
       } catch (err) {
-        console.error("合成或上傳失敗:", err);
-        alert("簽署過程發生錯誤：" + err.message);
+        console.error(err);
+        alert("簽署過程發生錯誤：" + err.message + "\n請檢查 Google Drive PDF 檔案權限是否設定為『知道連結的任何人皆可查看』。");
       } finally {
         submitBtn.disabled = false;
         loading.style.display = 'none';
